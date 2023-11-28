@@ -1,69 +1,125 @@
 // Next, React
-import { FC, useEffect, useState } from 'react';
-import Link from 'next/link';
+import { FC, useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 
 // Wallet
-import { useWallet, useConnection } from '@solana/wallet-adapter-react';
+import {
+  useWallet,
+  useConnection,
+  useAnchorWallet,
+} from "@solana/wallet-adapter-react";
 
 // Components
-import { RequestAirdrop } from '../../components/RequestAirdrop';
-import pkg from '../../../package.json';
+import { RequestAirdrop } from "../../components/RequestAirdrop";
+import pkg from "../../../package.json";
 
 // Store
-import useUserSOLBalanceStore from '../../stores/useUserSOLBalanceStore';
+import { SoundworkBidSDK, SoundworkListSDK } from "@jimii/soundwork-sdk";
+import { AnchorProvider, BN } from "@coral-xyz/anchor";
+import { LAMPORTS_PER_SOL, PublicKey, sendAndConfirmTransaction, Transaction } from "@solana/web3.js";
 
 export const HomeView: FC = ({ }) => {
   const wallet = useWallet();
   const { connection } = useConnection();
+  let anchorWallet = useAnchorWallet();
 
-  const balance = useUserSOLBalanceStore((s) => s.balance)
-  const { getUserSOLBalance } = useUserSOLBalanceStore()
+  const anchorProvider = useMemo((): AnchorProvider => {
+    return new AnchorProvider(
+      connection,
+      anchorWallet,
+      AnchorProvider.defaultOptions()
+    )
+  }, [anchorWallet, connection]);
 
-  useEffect(() => {
-    if (wallet.publicKey) {
-      console.log(wallet.publicKey.toBase58())
-      getUserSOLBalance(wallet.publicKey, connection)
-    }
-  }, [wallet.publicKey, connection, getUserSOLBalance])
+  const bidSDK = useMemo((): SoundworkBidSDK => {
+    return new SoundworkBidSDK(anchorProvider, connection);
+  }, [anchorProvider, connection]);
+
+  const listSDK = useMemo((): SoundworkListSDK => {
+    return new SoundworkListSDK(anchorProvider, connection);
+  }, [anchorProvider, connection]);
+
+  const nftMint = useMemo((): PublicKey => {
+    return new PublicKey(
+      "E3nQYNBhTu7F2idxy5zceAFh5YMKXU6Uo3oeSeebhcWC"
+    )
+  }, []);
+
+  const handleCreateListing = useCallback(async () => {
+    let tx = new Transaction();
+
+    let ix = await listSDK.createListing(nftMint, 1);
+    tx.add(ix);
+
+    let txSig = await wallet.sendTransaction(tx, connection);
+    console.log(`create listing tx: https://explorer.solana.com/tx/${txSig}?cluster=devnet`);
+  }, [listSDK, nftMint, wallet, connection]);
+
+  const handleCreateBid = useCallback(async () => {
+    let tx = new Transaction();
+
+    let now = new Date();
+    let expire_ts = now.setFullYear(now.getFullYear() + 1); // ! should default to a year
+
+    let ix = await bidSDK.placeBid(
+      nftMint,
+      new BN(1 * LAMPORTS_PER_SOL),
+      new BN(expire_ts),
+    );
+
+    tx.add(ix);
+
+    let txSig = await wallet.sendTransaction(tx, connection);
+    console.log(`create bid tx: https://explorer.solana.com/tx/${txSig}?cluster=devnet`);
+  }, [nftMint, wallet, connection, bidSDK]);
+
+  const handleDeleteBid = useCallback(async () => {
+    let tx = new Transaction();
+    let ix = await bidSDK.deleteBid(nftMint);
+
+    tx.add(ix);
+
+    let txSig = await wallet.sendTransaction(tx, connection);
+    console.log(`delete bid tx: https://explorer.solana.com/tx/${txSig}?cluster=devnet`);
+  }, [nftMint, wallet, connection, bidSDK]);
+
+
+  const handleDeleteListing = useCallback(async () => {
+    let tx = new Transaction();
+
+    let ix = await listSDK.deleteListing(nftMint);
+    tx.add(ix);
+
+    let txSig = await wallet.sendTransaction(tx, connection);
+    console.log(`delete listing tx: https://explorer.solana.com/tx/${txSig}?cluster=devnet`);
+  }, [listSDK, nftMint, wallet, connection]);
+
 
   return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "23px" }}>
+      <button
+        onClick={handleCreateListing}
+        style={{ border: "2px solid white", padding: "10px" }}>
+        create listing
+      </button>
 
-    <div className="md:hero mx-auto p-4">
-      <div className="md:hero-content flex flex-col">
-        <div className='mt-6'>
-        <div className='text-sm font-normal align-bottom text-right text-slate-600 mt-4'>v{pkg.version}</div>
-        <h1 className="text-center text-5xl md:pl-12 font-bold text-transparent bg-clip-text bg-gradient-to-br from-indigo-500 to-fuchsia-500 mb-4">
-          Solana Next
-        </h1>
-        </div>
-        <h4 className="md:w-full text-2x1 md:text-4xl text-center text-slate-300 my-2">
-          <p>Unleash the full power of blockchain with Solana and Next.js 13.</p>
-          <p className='text-slate-500 text-2x1 leading-relaxed'>Full-stack Solana applications made easy.</p>
-        </h4>
-        <div className="relative group">
-          <div className="absolute -inset-0.5 bg-gradient-to-r from-indigo-500 to-indigo-500 rounded-lg blur opacity-40 animate-tilt"></div>
-          <div className="max-w-md mx-auto mockup-code bg-primary border-2 border-[#5252529f] p-6 px-10 my-2">
-            <pre data-prefix=">">
-              <code className="truncate">{`npx create-solana-dapp <dapp-name>`} </code>
-            </pre>
-          </div>
-        </div>
-        <div className="flex flex-col mt-2">
-          <RequestAirdrop />
-          <h4 className="md:w-full text-2xl text-slate-300 my-2">
-          {wallet &&
-          <div className="flex flex-row justify-center">
-            <div>
-              {(balance || 0).toLocaleString()}
-              </div>
-              <div className='text-slate-600 ml-2'>
-                SOL
-              </div>
-          </div>
-          }
-          </h4>
-        </div>
-      </div>
+      <button
+        onClick={handleCreateBid}
+        style={{ border: "2px solid white", padding: "10px" }}>
+        create bid
+      </button>
+
+      <button
+        onClick={handleDeleteBid}
+        style={{ border: "2px solid white", padding: "10px" }}>
+        delete bid
+      </button>
+
+      <button
+        onClick={handleDeleteListing}
+        style={{ border: "2px solid white", padding: "10px" }}>
+        delete listing
+      </button>
     </div>
   );
 };
